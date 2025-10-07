@@ -1,145 +1,127 @@
-// context/AuthContext.jsx
-import { createContext, useState, useEffect } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
-import {
-    getStoredUser,
-    storeUser,
-    clearStoredUser,
-    loginAPI,
-    logoutAPI,
-    validateToken,
-    getStoredToken
-} from '../utils/auth'
+import { createContext, useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useSelector, useDispatch } from 'react-redux';
+import { useLoginMutation, useLogoutMutation, useValidateTokenMutation } from '@/services/authApi';
+import { setCredentials, logout as logoutAction } from '@/store/authSlice';
 
-export const AuthContext = createContext({})
+export const AuthContext = createContext({});
 
 export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(null)
-    const [isLoading, setIsLoading] = useState(true)
-    const navigate = useNavigate()
-    const location = useLocation()
+  const [isLoading, setIsLoading] = useState(true);
+  const { user, token, isAuthenticated } = useSelector((state) => state.auth); // Get from Redux
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [loginMutation] = useLoginMutation();
+  const [logoutMutation] = useLogoutMutation();
+  const [validateTokenMutation] = useValidateTokenMutation();
 
-    // Initialize auth state on app start
-    useEffect(() => {
-        const initializeAuth = async () => {
-            const storedUser = getStoredUser()
-            const token = getStoredToken()
-
-            if (storedUser && token) {
-                // Validate token with server (optional)
-                const validation = await validateToken(token)
-
-                if (validation.success) {
-                    setUser(storedUser)
-                } else {
-                    // Token invalid, clear storage
-                    clearStoredUser()
-                }
-            }
-
-            setIsLoading(false)
-        }
-
-        initializeAuth()
-    }, [])
-
-    // Redirect logic after auth state is determined
-    useEffect(() => {
-        if (!isLoading) {
-            const isLoginPage = location.pathname === '/login'
-
-            if (user && isLoginPage) {
-                // User is logged in but on login page, redirect to dashboard
-                navigate('/dashboard', { replace: true })
-            } else if (!user && !isLoginPage) {
-                // User is not logged in but trying to access protected page
-                navigate('/login', { replace: true })
-            }
-        }
-    }, [user, isLoading, location.pathname, navigate])
-
-    /**
-     * Login function
-     */
-    const login = async (credentials, remember = false) => {
-        setIsLoading(true)
-
+  // Initialize auth state on app start
+  useEffect(() => {
+    const initializeAuth = async () => {
+      const storedToken = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      if (storedToken) {
         try {
-            const result = await loginAPI(credentials)
-
-            if (result.success) {
-                const userData = result.data
-                setUser(userData)
-                storeUser(userData, remember)
-
-                // Navigate to intended page or dashboard
-                const from = location.state?.from?.pathname || '/dashboard'
-                navigate(from, { replace: true })
-
-                return { success: true }
-            } else {
-                throw new Error(result.error || 'Login failed')
-            }
+          await validateTokenMutation(storedToken).unwrap();
+          // setCredentials dispatched in mutation
         } catch (error) {
-            console.error('Login error:', error)
-            throw error
-        } finally {
-            setIsLoading(false)
+          console.error('Token validation failed:', error);
+          localStorage.removeItem('authToken');
+          sessionStorage.removeItem('authToken');
+          dispatch(logoutAction());
         }
+      }
+      setIsLoading(false);
+    };
+
+    initializeAuth();
+  }, [dispatch, validateTokenMutation]);
+
+  // Redirect logic after auth state is determined
+  useEffect(() => {
+    if (!isLoading) {
+      const isLoginPage = location.pathname === '/login';
+      if (isAuthenticated && isLoginPage) {
+        // Redirect to dashboard or intended page
+        const from = location.state?.from?.pathname || (user?.role === 'Admin' ? '/dashboard' : '/students');
+        navigate(from, { replace: true });
+      } else if (!isAuthenticated && !isLoginPage) {
+        // Redirect to login for unauthorized access
+        navigate('/login', { replace: true, state: { from: location } });
+      }
     }
+  }, [isAuthenticated, user, isLoading, location, navigate]);
 
-    /**
-     * Logout function
-     */
-    const logout = async () => {
-        setIsLoading(true)
-
-        try {
-            // Call logout API to invalidate token
-            await logoutAPI()
-        } catch (error) {
-            console.error('Logout API error:', error)
-        } finally {
-            // Clear local state and storage regardless of API response
-            setUser(null)
-            clearStoredUser()
-            setIsLoading(false)
-            navigate('/login', { replace: true })
-        }
+  /**
+   * Login function
+   */
+  const login = async (credentials, remember = false) => {
+    setIsLoading(true);
+    try {
+      const result = await loginMutation(credentials).unwrap();
+      const { token, user } = result;
+      // Store token in localStorage or sessionStorage
+      const storage = remember ? localStorage : sessionStorage;
+      storage.setItem('authToken', token);
+      // setCredentials dispatched in mutation
+      const from = location.state?.from?.pathname || (user.role === 'Admin' ? '/dashboard' : '/students');
+      navigate(from, { replace: true });
+      return { success: true };
+    } catch (error) {
+      console.error('Login error:', error);
+      throw new Error(error?.data?.message || 'Login failed');
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    /**
-     * Update user data
-     */
-    const updateUser = (updatedData) => {
-        const newUser = { ...user, ...updatedData }
-        setUser(newUser)
-
-        // Update storage
-        const isRemembered = localStorage.getItem('user')
-        storeUser(newUser, !!isRemembered)
+  /**
+   * Logout function
+   */
+  const logout = async () => {
+    setIsLoading(true);
+    try {
+      await logoutMutation().unwrap();
+      // logoutAction dispatched in mutation
+    } catch (error) {
+      console.error('Logout API error:', error);
+    } finally {
+      localStorage.removeItem('authToken');
+      sessionStorage.removeItem('authToken');
+      dispatch(logoutAction());
+      setIsLoading(false);
+      navigate('/login', { replace: true });
     }
+  };
 
-    /**
-     * Check if user has specific permission
-     */
-    const hasPermission = (permission) => {
-        return user?.permissions?.includes(permission) || false
-    }
+  /**
+   * Update user data
+   */
+  const updateUser = (updatedData) => {
+    const newUser = { ...user, ...updatedData };
+    dispatch(setCredentials({ token, user: newUser }));
+    // Update storage
+    const isRemembered = !!localStorage.getItem('authToken');
+    const storage = isRemembered ? localStorage : sessionStorage;
+    storage.setItem('authToken', token); // Token unchanged
+  };
 
-    const value = {
-        user,
-        login,
-        logout,
-        updateUser,
-        hasPermission,
-        isLoading,
-        isAuthenticated: !!user
-    }
+  /**
+   * Check if user has specific permission
+   */
+  const hasPermission = (permission) => {
+    return user?.permissions?.includes(permission) || false;
+  };
 
-    return (
-        <AuthContext.Provider value={value}>
-            {children}
-        </AuthContext.Provider>
-    )
-}
+  const value = {
+    user,
+    login,
+    logout,
+    updateUser,
+    hasPermission,
+    isLoading,
+    isAuthenticated,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};

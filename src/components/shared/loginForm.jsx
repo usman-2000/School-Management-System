@@ -5,27 +5,26 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { GraduationCap, AlertCircle } from "lucide-react"
-import { useAuth } from "@/hooks/useAuth"
+// import { useAuth } from "@/hooks/useAuth"
+import { useLogin } from '@/hooks/useAuth';
 
 export function LoginForm() {
     const [username, setUsername] = useState("")
     const [password, setPassword] = useState("")
     const [rememberMe, setRememberMe] = useState(false)
+    const { handleLogin, isLoading } = useLogin();
     const [error, setError] = useState("")
 
-    const { login, isLoading } = useAuth()
+    // const { login, isLoading } = useAuth()
 
     const handleSubmit = async (e) => {
-        e.preventDefault()
-        setError("")
-
-        try {
-            await login({ username, password }, rememberMe)
-            // Navigation is handled by AuthContext
-        } catch (error) {
-            setError(error.message || "Login failed. Please try again.")
-        }
+    e.preventDefault();
+    setError('');
+    const result = await handleLogin({ username, password }, rememberMe);
+    if (!result.success) {
+      setError(result.error);
     }
+  };
 
     return (
         <Card className="w-full shadow-lg border-0 bg-card">

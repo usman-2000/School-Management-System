@@ -1,28 +1,68 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
-import { setCredentials } from '@/store/authSlice'; // We'll create authSlice next
+import { setCredentials, logout } from '@/store/authSlice';
 
 export const authApi = createApi({
   reducerPath: 'authApi',
-  baseQuery: fetchBaseQuery({ baseUrl: '/api' }), // Adjust if your backend base URL differs (e.g., 'http://localhost:5000/api')
+  baseQuery: fetchBaseQuery({
+    baseUrl: '/api',
+    prepareHeaders: (headers, { getState }) => {
+      const token = getState().auth.token || localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
+      return headers;
+    },
+  }),
   endpoints: (builder) => ({
     login: builder.mutation({
       query: (credentials) => ({
-        url: '/auth/login', // Adjust if your endpoint is different (e.g., '/login')
+        url: '/auth/login',
         method: 'POST',
-        body: credentials, // { username, password }
+        body: credentials,
       }),
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
-          // Dispatch to auth slice to store token/user in Redux state
           dispatch(setCredentials({ token: data.token, user: data.user }));
         } catch (err) {
-          // Error handled in component
+          // Handled in hook/context
         }
       },
     }),
-    // Add more endpoints later, e.g., logout, getUser
+    logout: builder.mutation({
+      query: () => ({
+        url: '/auth/logout',
+        method: 'POST',
+      }),
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        try {
+          await queryFulfilled;
+          dispatch(logout());
+        } catch (err) {
+          dispatch(logout()); // Clear state even if API fails
+        }
+      },
+    }),
+    validateToken: builder.mutation({
+      query: (token) => ({
+        url: '/auth/validate',
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          if (data.success) {
+            dispatch(setCredentials({ token: arg, user: data.user }));
+          } else {
+            dispatch(logout());
+          }
+        } catch (err) {
+          dispatch(logout());
+        }
+      },
+    }),
   }),
 });
 
-export const { useLoginMutation } = authApi;
+export const { useLoginMutation, useLogoutMutation, useValidateTokenMutation } = authApi;
