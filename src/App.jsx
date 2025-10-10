@@ -12,7 +12,7 @@ import ProfilePage from './pages/profile/ProfilePage';
 import SettingsPage from './pages/settings/SettingsPage';
 import LoginPage from './pages/auth/loginPage';
 import AddStudentForm from './pages/students/AddStudentPage';
-import { ProtectedRoute } from './components/shared/protectedRoutes';
+import { ProtectedRoute } from './components/shared/ProtectedRoutes';
 
 function App() {
   return (
